@@ -299,7 +299,7 @@ export default function AuthForm({
   loadingText = formType === "login" ? "Signing in..." : "Creating account...",
   footerText = formType === "login" ? "Don't have an account?" : "Already have an account?",
   footerLinkText = formType === "login" ? "Sign up" : "Sign in",
-  footerLinkHref = formType === "login" ? "/auth/signup" : "/auth/login",
+  footerLinkHref = formType === "login" ? "/auth/signup" : "/auth/login", // Updated links
   redirectPath = formType === "login" ? "/home" : "/auth/login",
   onSubmit,
 }) {

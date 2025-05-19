@@ -10,9 +10,9 @@ export default function Header() {
           {/* Optional: Add navigation or buttons here */}
           <nav>
             <ul className="flex space-x-6 text-gray-600 font-medium">
-              <li><a href="#home" className="hover:text-blue-600">Home</a></li>
-              <li><a href="#about" className="hover:text-blue-600">About</a></li>
-              <li><a href="#contact" className="hover:text-blue-600">Contact</a></li>
+              <li><a href="/home" className="hover:text-blue-600">Home</a></li>
+              <li><a href="/about" className="hover:text-blue-600">About</a></li>
+              <li><a href="/contact" className="hover:text-blue-600">Contact</a></li>
             </ul>
           </nav>
           <div>
