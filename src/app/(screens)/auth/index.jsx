@@ -4,6 +4,7 @@ import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { EyeIcon, EyeOffIcon, AlertCircle, CheckCircle2 } from "lucide-react";
+import { supabase } from '@/lib/supabase'; // Import Supabase
 
 // Define all the components inline instead of importing them
 // AuthCard component for wrapping auth forms
@@ -286,18 +287,7 @@ const CheckboxInput = ({ id, label, checked, onChange, required = false, error =
 };
 
 /**
- * Reusable authentication form component with validation
- * @param {Object} props - Component props
- * @param {string} props.formType - Type of form 'login' or 'signup'
- * @param {string} props.title - Card title
- * @param {string} props.description - Card description
- * @param {string} props.submitButtonText - Text for submit button
- * @param {string} props.loadingText - Text to display when loading
- * @param {string} props.footerText - Text for footer
- * @param {string} props.footerLinkText - Text for footer link
- * @param {string} props.footerLinkHref - Href for footer link
- * @param {string} props.redirectPath - Path to redirect after successful submission
- * @param {Function} props.onSubmit - Custom submit handler (optional)
+ * Reusable authentication form component with validation and Supabase integration
  */
 export default function AuthForm({
   formType = "login", // login or signup
@@ -309,8 +299,8 @@ export default function AuthForm({
   loadingText = formType === "login" ? "Signing in..." : "Creating account...",
   footerText = formType === "login" ? "Don't have an account?" : "Already have an account?",
   footerLinkText = formType === "login" ? "Sign up" : "Sign in",
-  footerLinkHref = formType === "login" ? "/auth/signup" : "/auth/login", // Updated links
-  redirectPath = formType === "login" ? "/dashboard" : "/auth/login",
+  footerLinkHref = formType === "login" ? "/auth/signup" : "/auth/login",
+  redirectPath = formType === "login" ? "/home" : "/auth/login",
   onSubmit,
 }) {
   const router = useRouter();
@@ -515,26 +505,55 @@ export default function AuthForm({
       return;
     }
     
-    // Default submit behavior
+    // Supabase authentication
     try {
       setIsLoading(true);
       
-      // Simulate authentication process
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      if (formType === "login") {
+        // Login with Supabase
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email: email,
+          password: password,
+        });
+        
+        if (error) {
+          throw error;
+        }
+        
+        // Success - redirect to home
+        router.push(redirectPath);
+        
+      } else {
+        // Signup with Supabase
+        const { data, error } = await supabase.auth.signUp({
+          email: email,
+          password: password,
+          options: {
+            data: {
+              name: name,
+            }
+          }
+        });
+        
+        if (error) {
+          throw error;
+        }
+        
+        // Success - show message and redirect
+        setFormError("Please check your email for verification link!");
+        setTimeout(() => {
+          router.push(redirectPath);
+        }, 3000);
+      }
       
-      // Here you would integrate with your actual auth system
-      // const response = formType === "login" 
-      //   ? await loginUser(email, password)
-      //   : await registerUser({ name, email, password });
-      
-      setIsLoading(false);
-      router.push(redirectPath);
     } catch (err) {
-      setIsLoading(false);
-      setFormError(formType === "login" 
+      console.error('Auth error:', err);
+      setFormError(err.message || (formType === "login" 
         ? "Invalid credentials. Please try again." 
         : "Registration failed. Please try again."
-      );
+      ));
+    } finally {
+      setIsLoading(false);
     }
   };
 
