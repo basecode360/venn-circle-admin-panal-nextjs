@@ -310,7 +310,7 @@ export default function AuthForm({
   footerText = formType === "login" ? "Don't have an account?" : "Already have an account?",
   footerLinkText = formType === "login" ? "Sign up" : "Sign in",
   footerLinkHref = formType === "login" ? "/auth/signup" : "/auth/login", // Updated links
-  redirectPath = formType === "login" ? "/dashboard" : "/auth/login",
+  redirectPath = formType === "login" ? "/home" : "/auth/login",
   onSubmit,
 }) {
   const router = useRouter();
