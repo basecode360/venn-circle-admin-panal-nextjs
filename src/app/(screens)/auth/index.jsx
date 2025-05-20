@@ -4,7 +4,7 @@ import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { EyeIcon, EyeOffIcon, AlertCircle, CheckCircle2 } from "lucide-react";
-import { supabase } from '@/lib/supabase'; // Import Supabase
+import { supabase } from '../../../../lib/supabase'; // Add Supabase import
 
 // Define all the components inline instead of importing them
 // AuthCard component for wrapping auth forms

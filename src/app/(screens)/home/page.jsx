@@ -1,14 +1,14 @@
-import Dashbord from '@/app/components/Dashboard'
-import Header from '@/app/components/Header'
-import React from 'react'
+"use client";
+
+import Dashboard from "@/app/components/Dashboard";
+import React from "react";
 
 const Home = () => {
   return (
     <div>
-         <Header/>
-<Dashbord/>
+      <Dashboard />
     </div>
-  )
-}
+  );
+};
 
-export default Home
+export default Home;
