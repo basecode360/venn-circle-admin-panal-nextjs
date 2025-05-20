@@ -1,29 +1,35 @@
 "use client"
 import React, { useState, useEffect } from 'react'
-import { X, Plus, Trash2 } from 'lucide-react'
+import { X, Plus, Trash2, Edit } from 'lucide-react'
 import Newinput from '../../ReUseable-Component/Newinput'
 import Newbutton from '../../ReUseable-Component/Newbutton'
-
 
 function AddCircle({ onClose, onAddCircle }) {
   const [formData, setFormData] = useState({
     title: '',
     description: '',
     image: null,
-    questions: []
+    type: 'filltered'
   })
 
-  const [newQuestion, setNewQuestion] = useState({
+  // Separate state for question being edited
+  const [questionData, setQuestionData] = useState({
     question: '',
-    options: ['', '']
+    options: ['', ''],
+    isEditing: false,
+    editingId: null // Track which question is being edited
   })
+
+  // State for the list of questions (max 3)
+  const [questions, setQuestions] = useState([])
 
   const [formErrors, setFormErrors] = useState({})
 
-  // Debug log for image changes
+  // Debug logs for tracking state
   useEffect(() => {
-    console.log('Current formData.image:', formData.image)
-  }, [formData.image])
+    console.log('Current formData:', formData)
+    console.log('Current questions:', questions)
+  }, [formData, questions])
 
   const handleInputChange = (e) => {
     const { name, value } = e.target
@@ -51,22 +57,23 @@ function AddCircle({ onClose, onAddCircle }) {
   }
 
   const handleQuestionChange = (e) => {
-    setNewQuestion(prev => ({
+    setQuestionData(prev => ({
       ...prev,
       question: e.target.value
     }))
   }
 
   const handleOptionChange = (index, value) => {
-    setNewQuestion(prev => ({
+    setQuestionData(prev => ({
       ...prev,
       options: prev.options.map((opt, i) => i === index ? value : opt)
     }))
   }
 
   const addOption = () => {
-    if (newQuestion.options.length < 4) {
-      setNewQuestion(prev => ({
+    // Maximum 3 options
+    if (questionData.options.length < 3) {
+      setQuestionData(prev => ({
         ...prev,
         options: [...prev.options, '']
       }))
@@ -74,32 +81,84 @@ function AddCircle({ onClose, onAddCircle }) {
   }
 
   const removeOption = (index) => {
-    if (newQuestion.options.length > 2) {
-      setNewQuestion(prev => ({
+    if (questionData.options.length > 2) {
+      setQuestionData(prev => ({
         ...prev,
         options: prev.options.filter((_, i) => i !== index)
       }))
     }
   }
 
-  const addQuestion = () => {
-    if (newQuestion.question.trim() && newQuestion.options.every(opt => opt.trim())) {
-      setFormData(prev => ({
-        ...prev,
-        questions: [...prev.questions, { ...newQuestion, id: Date.now() }]
-      }))
-      setNewQuestion({
-        question: '',
-        options: ['', '']
+  // Show the question input fields for adding a new question
+  const showQuestionInput = () => {
+    setQuestionData({
+      question: '',
+      options: ['', ''],
+      isEditing: true,
+      editingId: null
+    })
+  }
+
+  // Edit an existing question
+  const editQuestion = (questionId) => {
+    const questionToEdit = questions.find(q => q.id === questionId)
+    if (questionToEdit) {
+      setQuestionData({
+        question: questionToEdit.question,
+        options: [...questionToEdit.options],
+        isEditing: true,
+        editingId: questionId
       })
     }
   }
 
+  // Save the current question (either new or edited)
+  const saveQuestion = () => {
+    if (questionData.question.trim() && questionData.options.every(opt => opt.trim())) {
+      if (questionData.editingId) {
+        // Update existing question
+        setQuestions(prev => prev.map(q => 
+          q.id === questionData.editingId ? 
+          {
+            ...q,
+            question: questionData.question,
+            options: [...questionData.options]
+          } : q
+        ))
+      } else {
+        // Add new question
+        const questionToAdd = {
+          question: questionData.question,
+          options: [...questionData.options],
+          id: Date.now() // Ensure unique ID
+        }
+        
+        // Add the question to questions array
+        setQuestions(prev => [...prev, questionToAdd])
+      }
+      
+      // Reset the question form and hide it
+      setQuestionData({
+        question: '',
+        options: ['', ''],
+        isEditing: false,
+        editingId: null
+      })
+    }
+  }
+
+  // Cancel question editing
+  const cancelEditQuestion = () => {
+    setQuestionData({
+      question: '',
+      options: ['', ''],
+      isEditing: false,
+      editingId: null
+    })
+  }
+
   const removeQuestion = (id) => {
-    setFormData(prev => ({
-      ...prev,
-      questions: prev.questions.filter(q => q.id !== id)
-    }))
+    setQuestions(prev => prev.filter(q => q.id !== id))
   }
 
   const validateForm = () => {
@@ -120,28 +179,40 @@ function AddCircle({ onClose, onAddCircle }) {
   const handleSubmit = (e) => {
     e.preventDefault()
     
+    // Only save current question if type is 'Unfillter' and the question is being edited
+    if (formData.type === 'Unfillter' && questionData.isEditing && 
+        questionData.question.trim() && 
+        questionData.options.every(opt => opt.trim())) {
+      saveQuestion()
+    }
+    
     if (validateForm()) {
-      const newCircle = {
+      // Create submission data including the questions - but only for Unfillter type
+      const submissionData = {
         id: Date.now(),
         name: formData.title,
         description: formData.description,
         members: 0,
-        type: 'Public',
+        type: formData.type,
         image: formData.image ? URL.createObjectURL(formData.image) : null,
-        questions: formData.questions
+        // Only include questions for Unfillter type
+        questions: formData.type === 'Unfillter' ? [...questions] : []
       }
-      console.log('AddCircle - Submitting circle:', newCircle)
-      console.log('AddCircle - onAddCircle function:', typeof onAddCircle)
+      
+      console.log('AddCircle - Submitting circle with type:', formData.type)
+      console.log('AddCircle - Submitting circle with questions:', submissionData.questions)
       
       if (typeof onAddCircle === 'function') {
-        onAddCircle(newCircle)
+        onAddCircle(submissionData)
+        onClose()
       } else {
         console.error('onAddCircle is not a function!')
       }
-      
-      onClose()
     }
   }
+
+  // Maximum allowed questions count
+  const MAX_QUESTIONS = 3
 
   return (
     <div className="max-w-2xl mx-auto">
@@ -177,6 +248,28 @@ function AddCircle({ onClose, onAddCircle }) {
             resize={true}
           />
 
+          {/* Type Selection */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Circle Type *</label>
+            <div className="flex items-center space-x-2 mb-2">
+              <select
+                name="type"
+                value={formData.type}
+                onChange={handleInputChange}
+                className="w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                required
+              >
+                <option value="filltered">Filtered</option>
+                <option value="Unfillter">Unfiltered</option>
+              </select>
+            </div>
+            <div className="text-sm text-gray-500 italic">
+              {formData.type === 'filltered' ? 
+                "Filtered circles don't include questions" : 
+                "Unfiltered circles allow adding questions"}
+            </div>
+          </div>
+
           {/* Image Upload */}
           <div>
             <Newinput
@@ -198,92 +291,134 @@ function AddCircle({ onClose, onAddCircle }) {
             )}
           </div>
 
-          {/* Questions Section */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-4">
-              Questions
-            </label>
-            
-            {/* Existing Questions */}
-            {formData.questions.length > 0 && (
-              <div className="space-y-3 mb-4">
-                {formData.questions.map((q, index) => (
-                  <div key={q.id} className="p-4 border border-gray-200 rounded-md bg-gray-50">
-                    <div className="flex justify-between items-start mb-2">
-                      <h4 className="font-medium">{q.question}</h4>
-                      <Newbutton
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => removeQuestion(q.id)}
-                        icon={<Trash2 size={16} />}
-                        className="text-red-500 hover:text-red-700"
-                      />
-                    </div>
-                    <ul className="space-y-1">
-                      {q.options.map((option, optIndex) => (
-                        <li key={optIndex} className="text-sm text-gray-600">
-                          • {option}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                ))}
+          {/* Questions Section - Only show when type is Unfillter */}
+          {formData.type === 'Unfillter' && (
+            <div>
+              <div className="flex justify-between items-center mb-4">
+                <label className="block text-sm font-medium text-gray-700">
+                  Questions
+                </label>
+                <span className="text-sm text-gray-500">({questions.length}/{MAX_QUESTIONS} questions)</span>
               </div>
-            )}
+              
+              {/* Existing Questions */}
+              {questions.length > 0 && (
+                <div className="space-y-3 mb-4">
+                  {questions.map((q, index) => (
+                    <div key={q.id} className="p-4 border border-gray-200 rounded-md bg-gray-50">
+                      <div className="flex justify-between items-start mb-2">
+                        <h4 className="font-medium">Question {index + 1}: {q.question}</h4>
+                        <div className="flex space-x-2">
+                          <Newbutton
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => editQuestion(q.id)}
+                            icon={<Edit size={16} />}
+                            className="text-blue-500 hover:text-blue-700"
+                          />
+                          <Newbutton
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => removeQuestion(q.id)}
+                            icon={<Trash2 size={16} />}
+                            className="text-red-500 hover:text-red-700"
+                          />
+                        </div>
+                      </div>
+                      <ul className="space-y-1">
+                        {q.options.map((option, optIndex) => (
+                          <li key={optIndex} className="text-sm text-gray-600">
+                            {String.fromCharCode(65 + optIndex)}. {option}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))}
+                </div>
+              )}
 
-            {/* Add New Question */}
-            <div className="p-4 border border-gray-300 rounded-md">
-              <div className="space-y-4">
-                <Newinput
-                  value={newQuestion.question}
-                  onChange={handleQuestionChange}
-                  placeholder="Enter question"
-                  clearable={true}
-                />
-                
-                <div className="space-y-3">
-                  <label className="text-sm font-medium text-gray-700">Options:</label>
-                  {newQuestion.options.map((option, index) => (
-                    <div key={index} className="flex items-center space-x-2">
-                      <Newinput
-                        value={option}
-                        onChange={(e) => handleOptionChange(index, e.target.value)}
-                        placeholder={`Option ${index + 1}`}
-                        className="flex-1"
-                      />
-                      {newQuestion.options.length > 2 && (
+              {/* Question input fields - shown when editing a question */}
+              {questionData.isEditing && (
+                <div className="p-4 border border-gray-300 rounded-md mb-4">
+                  <div className="space-y-4">
+                    <Newinput
+                      value={questionData.question}
+                      onChange={handleQuestionChange}
+                      placeholder="Enter question"
+                      clearable={true}
+                    />
+                    
+                    <div className="space-y-3">
+                      <label className="text-sm font-medium text-gray-700">Options:</label>
+                      {questionData.options.map((option, index) => (
+                        <div key={index} className="flex items-center space-x-2">
+                          <span className="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center text-sm font-medium">
+                            {String.fromCharCode(65 + index)}
+                          </span>
+                          <Newinput
+                            value={option}
+                            onChange={(e) => handleOptionChange(index, e.target.value)}
+                            placeholder={`Option ${String.fromCharCode(65 + index)}`}
+                            className="flex-1"
+                          />
+                          {questionData.options.length > 2 && (
+                            <Newbutton
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => removeOption(index)}
+                              icon={<X size={16} />}
+                              className="text-red-500 hover:text-red-700"
+                            />
+                          )}
+                        </div>
+                      ))}
+                      
+                      {questionData.options.length < 3 && (
                         <Newbutton
                           variant="ghost"
-                          size="icon"
-                          onClick={() => removeOption(index)}
-                          icon={<X size={20} />}
-                          className="text-red-500 hover:text-red-700"
+                          size="sm"
+                          onClick={addOption}
+                          icon={<Plus size={16} />}
+                          text="Add Option"
+                          className="text-blue-600 hover:text-blue-800"
                         />
                       )}
                     </div>
-                  ))}
-                  
-                  {newQuestion.options.length < 4 && (
-                    <Newbutton
-                      variant="ghost"
-                      size="sm"
-                      onClick={addOption}
-                      icon={<Plus size={16} />}
-                      text="Add Option"
-                      className="text-blue-600 hover:text-blue-800"
-                    />
-                  )}
-                </div>
 
+                    <div className="flex space-x-3">
+                      <Newbutton
+                        variant="success"
+                        type="button"
+                        onClick={saveQuestion}
+                        text={questionData.editingId ? "Update Question" : "Save Question"}
+                        disabled={!questionData.question.trim() || !questionData.options.every(opt => opt.trim())}
+                        className="flex-1"
+                      />
+                      <Newbutton
+                        variant="ghost"
+                        type="button"
+                        onClick={cancelEditQuestion}
+                        text="Cancel"
+                        className="flex-1"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Add Question Button - only show when not currently editing a question and less than MAX_QUESTIONS questions */}
+              {!questionData.isEditing && questions.length < MAX_QUESTIONS && (
                 <Newbutton
-                  variant="success"
-                  onClick={addQuestion}
+                  variant="outline"
+                  size="md"
+                  onClick={showQuestionInput}
+                  icon={<Plus size={16} />}
                   text="Add Question"
-                  disabled={!newQuestion.question.trim() || !newQuestion.options.every(opt => opt.trim())}
+                  className="w-full mb-4"
                 />
-              </div>
+              )}
             </div>
-          </div>
+          )}
 
           {/* Submit Buttons */}
           <div className="flex space-x-3 pt-4">

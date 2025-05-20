@@ -10,16 +10,16 @@ function Dashboard() {
   const [circles, setCircles] = useState([])
 
   // Test circle add kar dete hain
-  React.useEffect(() => {
-    setCircles([{
-      id: 1,
-      name: 'Sample Circle',
-      description: 'Test description',
-      members: 5,
-      type: 'Public',
-      questions: []
-    }])
-  }, [])
+  // React.useEffect(() => {
+  //   setCircles([{
+  //     id: 1,
+  //     name: 'Sample Circle',
+  //     description: 'Test description',
+  //     members: 5,
+  //     type: 'Public',
+  //     questions: []
+  //   }])
+  // }, [])
 
   const renderContent = () => {
     switch(activeContent) {
@@ -30,7 +30,7 @@ function Dashboard() {
       case 'users':
         return <UserDetails />
       default:
-        return <Circles circles={circles} setCircles={setCircles} />
+        return null
     }
   }
 
