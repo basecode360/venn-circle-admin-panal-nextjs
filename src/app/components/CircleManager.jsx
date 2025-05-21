@@ -31,17 +31,37 @@ export default function CircleManagement({ user, supabase, onLogout }) {
     },
   ]);
 
+  // Handle visibility change
+  const handleVisibilityChange = (value) => {
+    setVisibility(value);
+
+    // If changing to public, reset questions to empty
+    if (value === "public") {
+      setQuestions([]);
+    }
+    // If changing to private and no questions exist, create a default one
+    else if (value === "private" && (!questions || questions.length === 0)) {
+      setQuestions([
+        {
+          id: "1",
+          question: "",
+          answers: ["", "", "", ""],
+        },
+      ]);
+    }
+  };
+
   // Handle image uploads
   const handleImageUpload = async (e, type) => {
     const file = e.target.files[0];
     if (!file) return;
-    
+
     try {
       // Create a unique file name
-      const fileExt = file.name.split('.').pop();
+      const fileExt = file.name.split(".").pop();
       const fileName = `${type}_${Date.now()}.${fileExt}`;
       const filePath = `circle_images/${fileName}`;
-      
+
       // Use a simpler approach for now - convert to base64 and store the string
       // This works without needing to set up Supabase storage buckets
       return new Promise((resolve, reject) => {
@@ -49,9 +69,9 @@ export default function CircleManagement({ user, supabase, onLogout }) {
         reader.readAsDataURL(file);
         reader.onload = () => {
           const base64String = reader.result;
-          if (type === 'banner') {
+          if (type === "banner") {
             setBannerImage(base64String);
-          } else if (type === 'icon') {
+          } else if (type === "icon") {
             setIconImage(base64String);
           }
           resolve(base64String);
@@ -62,7 +82,7 @@ export default function CircleManagement({ user, supabase, onLogout }) {
           reject(error);
         };
       });
-      
+
       /* 
       // This is the Supabase storage approach - keep it commented out until you set up a bucket
       // Upload image to Supabase Storage
@@ -83,7 +103,6 @@ export default function CircleManagement({ user, supabase, onLogout }) {
         setIconImage(imageUrl);
       }
       */
-      
     } catch (error) {
       console.error(`Error uploading ${type} image:`, error);
       setFormError(`Failed to upload ${type} image: ${error.message}`);
@@ -162,7 +181,7 @@ export default function CircleManagement({ user, supabase, onLogout }) {
     setVisibility("public");
     setBannerImage("");
     setIconImage("");
-    setQuestions([{ id: "1", question: "", answers: ["", "", "", ""] }]);
+    setQuestions([]);
     setEditingCircle(null);
     setShowForm(false);
     setFormError("");
@@ -177,8 +196,12 @@ export default function CircleManagement({ user, supabase, onLogout }) {
     setBannerImage(circle.banner_image || "");
     setIconImage(circle.icon_image || "");
 
-    // Load existing questions or create default one
-    if (circle.join_questions && circle.join_questions.length > 0) {
+    // Only load questions for private circles
+    if (
+      circle.visibility === "private" &&
+      circle.join_questions &&
+      circle.join_questions.length > 0
+    ) {
       const loadedQuestions = circle.join_questions.map((q, index) => ({
         id: q.id || (index + 1).toString(),
         question: q.question || "",
@@ -187,8 +210,12 @@ export default function CircleManagement({ user, supabase, onLogout }) {
           : ["", "", "", ""],
       }));
       setQuestions(loadedQuestions);
-    } else {
+    } else if (circle.visibility === "private") {
+      // Add default question for private circles with no questions
       setQuestions([{ id: "1", question: "", answers: ["", "", "", ""] }]);
+    } else {
+      // Empty questions for public circles
+      setQuestions([]);
     }
 
     setShowForm(true);
@@ -228,17 +255,20 @@ export default function CircleManagement({ user, supabase, onLogout }) {
       return false;
     }
 
-    // Check if all questions have text and all answers are filled
-    for (let i = 0; i < questions.length; i++) {
-      const q = questions[i];
-      if (!q.question.trim()) {
-        setFormError(`Question ${i + 1} is required`);
-        return false;
-      }
-      for (let j = 0; j < q.answers.length; j++) {
-        if (!q.answers[j].trim()) {
-          setFormError(`Question ${i + 1}, Answer ${j + 1} is required`);
+    // Only validate questions for private circles
+    if (visibility === "private") {
+      // Check if all questions have text and all answers are filled
+      for (let i = 0; i < questions.length; i++) {
+        const q = questions[i];
+        if (!q.question.trim()) {
+          setFormError(`Question ${i + 1} is required`);
           return false;
+        }
+        for (let j = 0; j < q.answers.length; j++) {
+          if (!q.answers[j].trim()) {
+            setFormError(`Question ${i + 1}, Answer ${j + 1} is required`);
+            return false;
+          }
         }
       }
     }
@@ -263,27 +293,28 @@ export default function CircleManagement({ user, supabase, onLogout }) {
   // Handle form submission
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setFormError('');
-    
+    setFormError("");
+
     if (!supabase) {
-      console.error('Supabase client is not available');
-      setFormError('Database connection not available');
+      console.error("Supabase client is not available");
+      setFormError("Database connection not available");
       return;
     }
-    
+
     // Validate form inputs
     if (!validateForm()) return;
-  
-    // Format questions for database
-    const formattedQuestions = formatQuestionsForDb();
-  
+
+    // Format questions for database - only for private circles
+    const formattedQuestions =
+      visibility === "private" ? formatQuestionsForDb() : [];
+
     try {
       setSubmitting(true);
-      
+
       if (editingCircle) {
         // Update existing circle
         const { error } = await supabase
-          .from('circles')
+          .from("circles")
           .update({
             name: circleName.trim(),
             description: circleDescription.trim(),
@@ -291,44 +322,39 @@ export default function CircleManagement({ user, supabase, onLogout }) {
             banner_image: bannerImage,
             icon_image: iconImage,
             join_questions: formattedQuestions,
-            
           })
-          .eq('id', editingCircle.id);
-        
+          .eq("id", editingCircle.id);
+
         if (error) throw error;
-        alert('Circle updated successfully!');
+        alert("Circle updated successfully!");
       } else {
         // Create new circle
-        const { error } = await supabase
-          .from('circles')
-          .insert([
-            {
-              name: circleName.trim(),
-              description: circleDescription.trim(),
-              visibility: visibility,
-              banner_image: bannerImage,
-              icon_image: iconImage,
-              created_by: user.id,
-              join_questions: formattedQuestions,
-              member_count: 1,
-              is_official: false,
-              is_filtered: false,
-              auto_join: false
-              // Removed the "members" array that was causing the error
-            }
-          ]);
-  
+        const { error } = await supabase.from("circles").insert([
+          {
+            name: circleName.trim(),
+            description: circleDescription.trim(),
+            visibility: visibility,
+            banner_image: bannerImage,
+            icon_image: iconImage,
+            created_by: user.id,
+            join_questions: formattedQuestions,
+            member_count: 1,
+            is_official: false,
+            is_filtered: false,
+            auto_join: false,
+          },
+        ]);
+
         if (error) throw error;
-        alert('Circle created successfully!');
+        alert("Circle created successfully!");
       }
-      
+
       // Reset form and reload circles
       resetForm();
       loadCircles();
-      
     } catch (error) {
-      console.error('Error submitting circle:', error);
-      setFormError('Error saving circle: ' + error.message);
+      console.error("Error submitting circle:", error);
+      setFormError("Error saving circle: " + error.message);
     } finally {
       setSubmitting(false);
     }
@@ -429,7 +455,7 @@ export default function CircleManagement({ user, supabase, onLogout }) {
                     name="visibility"
                     value="public"
                     checked={visibility === "public"}
-                    onChange={() => setVisibility("public")}
+                    onChange={() => handleVisibilityChange("public")}
                     className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
                   />
                   <span className="ml-2 text-gray-700 dark:text-gray-300">
@@ -442,7 +468,7 @@ export default function CircleManagement({ user, supabase, onLogout }) {
                     name="visibility"
                     value="private"
                     checked={visibility === "private"}
-                    onChange={() => setVisibility("private")}
+                    onChange={() => handleVisibilityChange("private")}
                     className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
                   />
                   <span className="ml-2 text-gray-700 dark:text-gray-300">
@@ -450,6 +476,15 @@ export default function CircleManagement({ user, supabase, onLogout }) {
                   </span>
                 </label>
               </div>
+              {visibility === "private" ? (
+                <p className="text-sm text-gray-500 mt-1">
+                  Private circles require join questions
+                </p>
+              ) : (
+                <p className="text-sm text-gray-500 mt-1">
+                  Public circles don't have join questions
+                </p>
+              )}
             </div>
 
             {/* Image Uploads */}
@@ -529,70 +564,72 @@ export default function CircleManagement({ user, supabase, onLogout }) {
               </div>
             </div>
 
-            {/* Questions Section */}
-            <div>
-              <div className="flex justify-between items-center mb-4">
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                  Join Questions *
-                </label>
-                <button
-                  type="button"
-                  onClick={addQuestion}
-                  className="flex items-center space-x-1 bg-green-600 text-white px-3 py-1 rounded text-sm hover:bg-green-700"
-                >
-                  <Plus className="h-3 w-3" />
-                  <span>Add Question</span>
-                </button>
-              </div>
-
-              {questions.map((question, qIndex) => (
-                <div
-                  key={qIndex}
-                  className="border border-gray-200 dark:border-gray-600 p-4 rounded-lg mb-4 bg-gray-50 dark:bg-gray-700"
-                >
-                  <div className="flex justify-between items-center mb-3">
-                    <h4 className="font-medium text-gray-900 dark:text-white">
-                      Question {qIndex + 1}
-                    </h4>
-                    {questions.length > 1 && (
-                      <button
-                        type="button"
-                        onClick={() => removeQuestion(qIndex)}
-                        className="text-red-600 hover:text-red-800 dark:text-red-400"
-                        aria-label="Remove question"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    )}
-                  </div>
-
-                  <input
-                    type="text"
-                    placeholder="Enter your question"
-                    value={question.question}
-                    onChange={(e) => updateQuestion(qIndex, e.target.value)}
-                    className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-600 dark:text-white"
-                    required
-                  />
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                    {question.answers.map((answer, aIndex) => (
-                      <input
-                        key={aIndex}
-                        type="text"
-                        placeholder={`Answer ${aIndex + 1}`}
-                        value={answer}
-                        onChange={(e) =>
-                          updateAnswer(qIndex, aIndex, e.target.value)
-                        }
-                        className="border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-600 dark:text-white"
-                        required
-                      />
-                    ))}
-                  </div>
+            {/* Questions Section - Only visible for private circles */}
+            {visibility === "private" && (
+              <div>
+                <div className="flex justify-between items-center mb-4">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Join Questions *
+                  </label>
+                  <button
+                    type="button"
+                    onClick={addQuestion}
+                    className="flex items-center space-x-1 bg-green-600 text-white px-3 py-1 rounded text-sm hover:bg-green-700"
+                  >
+                    <Plus className="h-3 w-3" />
+                    <span>Add Question</span>
+                  </button>
                 </div>
-              ))}
-            </div>
+
+                {questions.map((question, qIndex) => (
+                  <div
+                    key={qIndex}
+                    className="border border-gray-200 dark:border-gray-600 p-4 rounded-lg mb-4 bg-gray-50 dark:bg-gray-700"
+                  >
+                    <div className="flex justify-between items-center mb-3">
+                      <h4 className="font-medium text-gray-900 dark:text-white">
+                        Question {qIndex + 1}
+                      </h4>
+                      {questions.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => removeQuestion(qIndex)}
+                          className="text-red-600 hover:text-red-800 dark:text-red-400"
+                          aria-label="Remove question"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      )}
+                    </div>
+
+                    <input
+                      type="text"
+                      placeholder="Enter your question"
+                      value={question.question}
+                      onChange={(e) => updateQuestion(qIndex, e.target.value)}
+                      className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-600 dark:text-white"
+                      required
+                    />
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                      {question.answers.map((answer, aIndex) => (
+                        <input
+                          key={aIndex}
+                          type="text"
+                          placeholder={`Answer ${aIndex + 1}`}
+                          value={answer}
+                          onChange={(e) =>
+                            updateAnswer(qIndex, aIndex, e.target.value)
+                          }
+                          className="border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-600 dark:text-white"
+                          required
+                        />
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
 
             {/* Submit Button */}
             <div className="flex space-x-3">
@@ -740,29 +777,31 @@ export default function CircleManagement({ user, supabase, onLogout }) {
                   </div>
                 </div>
 
-                {/* Join Questions Preview */}
-                {circle.join_questions && circle.join_questions.length > 0 && (
-                  <div className="border-t border-gray-200 dark:border-gray-600 pt-4">
-                    <h4 className="font-medium text-sm text-gray-700 dark:text-gray-300 mb-2">
-                      Join Questions ({circle.join_questions.length})
-                    </h4>
-                    <ul className="space-y-1">
-                      {circle.join_questions.slice(0, 2).map((q, index) => (
-                        <li
-                          key={index}
-                          className="text-xs text-gray-600 dark:text-gray-400 truncate"
-                        >
-                          {index + 1}. {q.question}
-                        </li>
-                      ))}
-                      {circle.join_questions.length > 2 && (
-                        <li className="text-xs text-gray-500 dark:text-gray-500">
-                          +{circle.join_questions.length - 2} more...
-                        </li>
-                      )}
-                    </ul>
-                  </div>
-                )}
+                {/* Join Questions Preview - Only show for private circles */}
+                {circle.visibility === "private" &&
+                  circle.join_questions &&
+                  circle.join_questions.length > 0 && (
+                    <div className="border-t border-gray-200 dark:border-gray-600 pt-4">
+                      <h4 className="font-medium text-sm text-gray-700 dark:text-gray-300 mb-2">
+                        Join Questions ({circle.join_questions.length})
+                      </h4>
+                      <ul className="space-y-1">
+                        {circle.join_questions.slice(0, 2).map((q, index) => (
+                          <li
+                            key={index}
+                            className="text-xs text-gray-600 dark:text-gray-400 truncate"
+                          >
+                            {index + 1}. {q.question}
+                          </li>
+                        ))}
+                        {circle.join_questions.length > 2 && (
+                          <li className="text-xs text-gray-500 dark:text-gray-500">
+                            +{circle.join_questions.length - 2} more...
+                          </li>
+                        )}
+                      </ul>
+                    </div>
+                  )}
 
                 {/* Creation Date */}
                 <div className="text-xs text-gray-400 dark:text-gray-500 mt-4">
