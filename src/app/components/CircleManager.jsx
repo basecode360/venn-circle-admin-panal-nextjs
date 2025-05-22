@@ -21,6 +21,7 @@ export default function CircleManagement({ user, supabase, onLogout }) {
   const [circleName, setCircleName] = useState("");
   const [circleDescription, setCircleDescription] = useState("");
   const [visibility, setVisibility] = useState("public");
+  const [isFiltered, setIsFiltered] = useState(false);
   const [bannerImage, setBannerImage] = useState("");
   const [iconImage, setIconImage] = useState("");
   const [questions, setQuestions] = useState([
@@ -34,20 +35,49 @@ export default function CircleManagement({ user, supabase, onLogout }) {
   // Handle visibility change
   const handleVisibilityChange = (value) => {
     setVisibility(value);
+    // No longer managing questions based on visibility
+  };
 
-    // If changing to public, reset questions to empty
-    if (value === "public") {
+  // Handle filtered change
+  const handleFilteredChange = (checked) => {
+    setIsFiltered(checked);
+    
+    const storageKey = editingCircle ? `circle_questions_${editingCircle.id}` : 'new_circle_questions';
+  
+    if (checked) {
+      // If enabling filtered, try to restore from localStorage
+      const savedQuestions = localStorage.getItem(storageKey);
+      if (savedQuestions) {
+        try {
+          const parsedQuestions = JSON.parse(savedQuestions);
+          setQuestions(parsedQuestions);
+        } catch (error) {
+          console.error('Error parsing saved questions:', error);
+          // Create default if parsing fails
+          setQuestions([
+            {
+              id: "1",
+              question: "",
+              answers: ["", "", "", ""],
+            },
+          ]);
+        }
+      } else if (!questions || questions.length === 0) {
+        // Create default questions if no saved ones
+        setQuestions([
+          {
+            id: "1",
+            question: "",
+            answers: ["", "", "", ""],
+          },
+        ]);
+      }
+    } else {
+      // If disabling filtered, save current questions to localStorage
+      if (questions.length > 0) {
+        localStorage.setItem(storageKey, JSON.stringify(questions));
+      }
       setQuestions([]);
-    }
-    // If changing to private and no questions exist, create a default one
-    else if (value === "private" && (!questions || questions.length === 0)) {
-      setQuestions([
-        {
-          id: "1",
-          question: "",
-          answers: ["", "", "", ""],
-        },
-      ]);
     }
   };
 
@@ -179,6 +209,7 @@ export default function CircleManagement({ user, supabase, onLogout }) {
     setCircleName("");
     setCircleDescription("");
     setVisibility("public");
+    setIsFiltered(false);
     setBannerImage("");
     setIconImage("");
     setQuestions([]);
@@ -193,12 +224,13 @@ export default function CircleManagement({ user, supabase, onLogout }) {
     setCircleName(circle.name);
     setCircleDescription(circle.description || "");
     setVisibility(circle.visibility || "public");
+    setIsFiltered(circle.is_filtered || false);
     setBannerImage(circle.banner_image || "");
     setIconImage(circle.icon_image || "");
 
-    // Only load questions for private circles
+    // Only load questions for filtered circles
     if (
-      circle.visibility === "private" &&
+      circle.is_filtered &&
       circle.join_questions &&
       circle.join_questions.length > 0
     ) {
@@ -210,11 +242,11 @@ export default function CircleManagement({ user, supabase, onLogout }) {
           : ["", "", "", ""],
       }));
       setQuestions(loadedQuestions);
-    } else if (circle.visibility === "private") {
-      // Add default question for private circles with no questions
+    } else if (circle.is_filtered) {
+      // Add default question for filtered circles with no questions
       setQuestions([{ id: "1", question: "", answers: ["", "", "", ""] }]);
     } else {
-      // Empty questions for public circles
+      // Empty questions for non-filtered circles
       setQuestions([]);
     }
 
@@ -255,8 +287,8 @@ export default function CircleManagement({ user, supabase, onLogout }) {
       return false;
     }
 
-    // Only validate questions for private circles
-    if (visibility === "private") {
+    // Only validate questions for filtered circles
+    if (isFiltered) {
       // Check if all questions have text and all answers are filled
       for (let i = 0; i < questions.length; i++) {
         const q = questions[i];
@@ -286,8 +318,36 @@ export default function CircleManagement({ user, supabase, onLogout }) {
         id: `q${qIndex + 1}a${aIndex + 1}`,
         text: answer.trim(),
         order: aIndex + 1,
+        is_correct: false // Add default value for is_correct field
       })),
     }));
+  };
+
+  // Get current user ID safely
+  const getCurrentUserId = async () => {
+    try {
+      // Method 1: Try to get current user from Supabase auth
+      const { data: { user: currentUser }, error } = await supabase.auth.getUser();
+      
+      if (currentUser && currentUser.id) {
+        console.log('Using authenticated user ID:', currentUser.id);
+        return currentUser.id;
+      }
+      
+      // Method 2: Use the user prop if available
+      if (user && user.id) {
+        console.log('Using prop user ID:', user.id);
+        return user.id;
+      }
+      
+      // Method 3: Return null to let database handle it
+      console.log('No valid user ID found, using null');
+      return null;
+      
+    } catch (error) {
+      console.error('Error getting user ID:', error);
+      return null;
+    }
   };
 
   // Handle form submission
@@ -304,9 +364,8 @@ export default function CircleManagement({ user, supabase, onLogout }) {
     // Validate form inputs
     if (!validateForm()) return;
 
-    // Format questions for database - only for private circles
-    const formattedQuestions =
-      visibility === "private" ? formatQuestionsForDb() : [];
+    // Format questions for database - only for filtered circles
+    const formattedQuestions = isFiltered ? formatQuestionsForDb() : [];
 
     try {
       setSubmitting(true);
@@ -319,6 +378,7 @@ export default function CircleManagement({ user, supabase, onLogout }) {
             name: circleName.trim(),
             description: circleDescription.trim(),
             visibility: visibility,
+            is_filtered: isFiltered,
             banner_image: bannerImage,
             icon_image: iconImage,
             join_questions: formattedQuestions,
@@ -329,21 +389,25 @@ export default function CircleManagement({ user, supabase, onLogout }) {
         alert("Circle updated successfully!");
       } else {
         // Create new circle
-        const { error } = await supabase.from("circles").insert([
-          {
-            name: circleName.trim(),
-            description: circleDescription.trim(),
-            visibility: visibility,
-            banner_image: bannerImage,
-            icon_image: iconImage,
-            created_by: user.id,
-            join_questions: formattedQuestions,
-            member_count: 1,
-            is_official: false,
-            is_filtered: false,
-            auto_join: false,
-          },
-        ]);
+        const circleData = {
+          name: circleName.trim(),
+          description: circleDescription.trim(),
+          visibility: visibility,
+          is_filtered: isFiltered,
+          banner_image: bannerImage,
+          icon_image: iconImage,
+          join_questions: formattedQuestions,
+          member_count: 1,
+          is_official: false,
+          auto_join: false,
+          // Don't add created_by at all - let database handle it or set to null
+        };
+
+        console.log('Creating circle with data:', circleData);
+
+        const { error } = await supabase
+          .from("circles")
+          .insert([circleData]);
 
         if (error) throw error;
         alert("Circle created successfully!");
@@ -476,15 +540,34 @@ export default function CircleManagement({ user, supabase, onLogout }) {
                   </span>
                 </label>
               </div>
-              {visibility === "private" ? (
-                <p className="text-sm text-gray-500 mt-1">
-                  Private circles require join questions
-                </p>
-              ) : (
-                <p className="text-sm text-gray-500 mt-1">
-                  Public circles don't have join questions
-                </p>
-              )}
+              <p className="text-sm text-gray-500 mt-1">
+                Choose circle visibility (Public or Private)
+              </p>
+            </div>
+
+            {/* Filtered Setting */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Circle Settings
+              </label>
+              <div className="flex items-center">
+                <label className="inline-flex items-center">
+                  <input
+                    type="checkbox"
+                    checked={isFiltered}
+                    onChange={(e) => handleFilteredChange(e.target.checked)}
+                    className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                  />
+                  <span className="ml-2 text-gray-700 dark:text-gray-300">
+                    Filtered Circle
+                  </span>
+                </label>
+              </div>
+              <p className="text-sm text-gray-500 mt-1">
+                {isFiltered 
+                  ? "This circle will have join questions and content filtering enabled" 
+                  : "This circle will not have join questions or content filtering"}
+              </p>
             </div>
 
             {/* Image Uploads */}
@@ -564,8 +647,8 @@ export default function CircleManagement({ user, supabase, onLogout }) {
               </div>
             </div>
 
-            {/* Questions Section - Only visible for private circles */}
-            {visibility === "private" && (
+            {/* Questions Section - Only visible for filtered circles */}
+            {isFiltered && (
               <div>
                 <div className="flex justify-between items-center mb-4">
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
@@ -682,7 +765,7 @@ export default function CircleManagement({ user, supabase, onLogout }) {
                   strokeLinecap="round"
                   strokeLinejoin="round"
                   strokeWidth={1}
-                  d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"
+                  d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 9a2 2 0 012-2m0 0V5a2 2 0 012 2v2M7 7h10"
                 />
               </svg>
             </div>
@@ -775,10 +858,17 @@ export default function CircleManagement({ user, supabase, onLogout }) {
                     <Eye className="h-4 w-4 mr-1" />
                     <span>{circle.visibility || "public"}</span>
                   </div>
+                  {circle.is_filtered && (
+                    <div className="flex items-center">
+                      <span className="text-orange-600 dark:text-orange-400 text-xs bg-orange-100 dark:bg-orange-900/20 px-2 py-1 rounded-full">
+                        Filtered
+                      </span>
+                    </div>
+                  )}
                 </div>
 
-                {/* Join Questions Preview - Only show for private circles */}
-                {circle.visibility === "private" &&
+                {/* Join Questions Preview - Only show for filtered circles */}
+                {circle.is_filtered &&
                   circle.join_questions &&
                   circle.join_questions.length > 0 && (
                     <div className="border-t border-gray-200 dark:border-gray-600 pt-4">
