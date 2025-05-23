@@ -1,21 +1,21 @@
-import React, { useState, useEffect } from "react";
-import {
-  Plus,
-  Edit,
-  Trash2,
-  AlertCircle,
-  Users,
-  Eye,
-  Upload,
-} from "lucide-react";
+import React, { useState, useEffect, useMemo } from "react";
+import { Plus, AlertCircle, Search } from "lucide-react";
+
+// Import custom components
+import SearchBar from './circle-management/SearchBar';
+import CreateCircleForm from './circle-management/CreateCircleForm';
+import EditCircleModal from './circle-management/EditCircleModal';
+import CircleCard from './circle-management/CircleCard';
 
 export default function CircleManagement({ user, supabase, onLogout }) {
   const [circles, setCircles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [showForm, setShowForm] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
   const [formError, setFormError] = useState("");
   const [editingCircle, setEditingCircle] = useState(null);
+  const [searchTerm, setSearchTerm] = useState("");
 
   // Form state
   const [circleName, setCircleName] = useState("");
@@ -29,51 +29,51 @@ export default function CircleManagement({ user, supabase, onLogout }) {
       id: "1",
       question: "",
       answers: ["", "", "", ""],
+      correctAnswer: 0,
     },
   ]);
 
   // Handle visibility change
   const handleVisibilityChange = (value) => {
     setVisibility(value);
-    // No longer managing questions based on visibility
   };
 
   // Handle filtered change
   const handleFilteredChange = (checked) => {
     setIsFiltered(checked);
-    
-    const storageKey = editingCircle ? `circle_questions_${editingCircle.id}` : 'new_circle_questions';
-  
+
+    const storageKey = editingCircle
+      ? `circle_questions_${editingCircle.id}`
+      : "new_circle_questions";
+
     if (checked) {
-      // If enabling filtered, try to restore from localStorage
       const savedQuestions = localStorage.getItem(storageKey);
       if (savedQuestions) {
         try {
           const parsedQuestions = JSON.parse(savedQuestions);
           setQuestions(parsedQuestions);
         } catch (error) {
-          console.error('Error parsing saved questions:', error);
-          // Create default if parsing fails
+          console.error("Error parsing saved questions:", error);
           setQuestions([
             {
               id: "1",
               question: "",
               answers: ["", "", "", ""],
+              correctAnswer: 0,
             },
           ]);
         }
       } else if (!questions || questions.length === 0) {
-        // Create default questions if no saved ones
         setQuestions([
           {
             id: "1",
             question: "",
             answers: ["", "", "", ""],
+            correctAnswer: 0,
           },
         ]);
       }
     } else {
-      // If disabling filtered, save current questions to localStorage
       if (questions.length > 0) {
         localStorage.setItem(storageKey, JSON.stringify(questions));
       }
@@ -87,13 +87,6 @@ export default function CircleManagement({ user, supabase, onLogout }) {
     if (!file) return;
 
     try {
-      // Create a unique file name
-      const fileExt = file.name.split(".").pop();
-      const fileName = `${type}_${Date.now()}.${fileExt}`;
-      const filePath = `circle_images/${fileName}`;
-
-      // Use a simpler approach for now - convert to base64 and store the string
-      // This works without needing to set up Supabase storage buckets
       return new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.readAsDataURL(file);
@@ -112,27 +105,6 @@ export default function CircleManagement({ user, supabase, onLogout }) {
           reject(error);
         };
       });
-
-      /* 
-      // This is the Supabase storage approach - keep it commented out until you set up a bucket
-      // Upload image to Supabase Storage
-      const { error: uploadError } = await supabase.storage
-        .from('images')  // Replace with your bucket name once created
-        .upload(filePath, file);
-        
-      if (uploadError) throw uploadError;
-      
-      // Get public URL
-      const { data } = supabase.storage.from('images').getPublicUrl(filePath);
-      const imageUrl = data.publicUrl;
-      
-      // Update state based on image type
-      if (type === 'banner') {
-        setBannerImage(imageUrl);
-      } else if (type === 'icon') {
-        setIconImage(imageUrl);
-      }
-      */
     } catch (error) {
       console.error(`Error uploading ${type} image:`, error);
       setFormError(`Failed to upload ${type} image: ${error.message}`);
@@ -179,6 +151,7 @@ export default function CircleManagement({ user, supabase, onLogout }) {
         id: (questions.length + 1).toString(),
         question: "",
         answers: ["", "", "", ""],
+        correctAnswer: 0,
       },
     ]);
   };
@@ -194,6 +167,13 @@ export default function CircleManagement({ user, supabase, onLogout }) {
   const updateAnswer = (questionIndex, answerIndex, value) => {
     const updated = [...questions];
     updated[questionIndex].answers[answerIndex] = value;
+    setQuestions(updated);
+  };
+
+  // Set correct answer for a question
+  const setCorrectAnswer = (questionIndex, answerIndex) => {
+    const updated = [...questions];
+    updated[questionIndex].correctAnswer = answerIndex;
     setQuestions(updated);
   };
 
@@ -215,7 +195,13 @@ export default function CircleManagement({ user, supabase, onLogout }) {
     setQuestions([]);
     setEditingCircle(null);
     setShowForm(false);
+    setShowEditModal(false);
     setFormError("");
+
+    localStorage.removeItem('new_circle_questions');
+    if (editingCircle) {
+      localStorage.removeItem(`circle_questions_${editingCircle.id}`);
+    }
   };
 
   // Edit circle
@@ -228,7 +214,6 @@ export default function CircleManagement({ user, supabase, onLogout }) {
     setBannerImage(circle.banner_image || "");
     setIconImage(circle.icon_image || "");
 
-    // Only load questions for filtered circles
     if (
       circle.is_filtered &&
       circle.join_questions &&
@@ -240,17 +225,16 @@ export default function CircleManagement({ user, supabase, onLogout }) {
         answers: q.answers
           ? q.answers.map((a) => a.text || "")
           : ["", "", "", ""],
+        correctAnswer: q.answers ? q.answers.findIndex(a => a.is_correct) || 0 : 0,
       }));
       setQuestions(loadedQuestions);
     } else if (circle.is_filtered) {
-      // Add default question for filtered circles with no questions
-      setQuestions([{ id: "1", question: "", answers: ["", "", "", ""] }]);
+      setQuestions([{ id: "1", question: "", answers: ["", "", "", ""], correctAnswer: 0 }]);
     } else {
-      // Empty questions for non-filtered circles
       setQuestions([]);
     }
 
-    setShowForm(true);
+    setShowEditModal(true);
   };
 
   // Delete circle
@@ -281,15 +265,12 @@ export default function CircleManagement({ user, supabase, onLogout }) {
 
   // Validate form
   const validateForm = () => {
-    // Check circle name
     if (!circleName.trim()) {
       setFormError("Circle name is required");
       return false;
     }
 
-    // Only validate questions for filtered circles
     if (isFiltered) {
-      // Check if all questions have text and all answers are filled
       for (let i = 0; i < questions.length; i++) {
         const q = questions[i];
         if (!q.question.trim()) {
@@ -318,37 +299,24 @@ export default function CircleManagement({ user, supabase, onLogout }) {
         id: `q${qIndex + 1}a${aIndex + 1}`,
         text: answer.trim(),
         order: aIndex + 1,
-        is_correct: false // Add default value for is_correct field
+        is_correct: aIndex === q.correctAnswer,
       })),
     }));
   };
 
-  // Get current user ID safely
-  const getCurrentUserId = async () => {
-    try {
-      // Method 1: Try to get current user from Supabase auth
-      const { data: { user: currentUser }, error } = await supabase.auth.getUser();
-      
-      if (currentUser && currentUser.id) {
-        console.log('Using authenticated user ID:', currentUser.id);
-        return currentUser.id;
-      }
-      
-      // Method 2: Use the user prop if available
-      if (user && user.id) {
-        console.log('Using prop user ID:', user.id);
-        return user.id;
-      }
-      
-      // Method 3: Return null to let database handle it
-      console.log('No valid user ID found, using null');
-      return null;
-      
-    } catch (error) {
-      console.error('Error getting user ID:', error);
-      return null;
+  // Filter circles based on search term
+  const filteredCircles = useMemo(() => {
+    if (!searchTerm.trim()) {
+      return circles;
     }
-  };
+
+    return circles.filter(
+      (circle) =>
+        circle.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (circle.description &&
+          circle.description.toLowerCase().includes(searchTerm.toLowerCase()))
+    );
+  }, [circles, searchTerm]);
 
   // Handle form submission
   const handleSubmit = async (e) => {
@@ -361,17 +329,14 @@ export default function CircleManagement({ user, supabase, onLogout }) {
       return;
     }
 
-    // Validate form inputs
     if (!validateForm()) return;
 
-    // Format questions for database - only for filtered circles
     const formattedQuestions = isFiltered ? formatQuestionsForDb() : [];
 
     try {
       setSubmitting(true);
 
       if (editingCircle) {
-        // Update existing circle
         const { error } = await supabase
           .from("circles")
           .update({
@@ -387,8 +352,9 @@ export default function CircleManagement({ user, supabase, onLogout }) {
 
         if (error) throw error;
         alert("Circle updated successfully!");
+
+        localStorage.removeItem(`circle_questions_${editingCircle.id}`);
       } else {
-        // Create new circle
         const circleData = {
           name: circleName.trim(),
           description: circleDescription.trim(),
@@ -400,20 +366,16 @@ export default function CircleManagement({ user, supabase, onLogout }) {
           member_count: 1,
           is_official: false,
           auto_join: false,
-          // Don't add created_by at all - let database handle it or set to null
         };
 
-        console.log('Creating circle with data:', circleData);
-
-        const { error } = await supabase
-          .from("circles")
-          .insert([circleData]);
+        const { error } = await supabase.from("circles").insert([circleData]);
 
         if (error) throw error;
         alert("Circle created successfully!");
+
+        localStorage.removeItem('new_circle_questions');
       }
 
-      // Reset form and reload circles
       resetForm();
       loadCircles();
     } catch (error) {
@@ -461,6 +423,13 @@ export default function CircleManagement({ user, supabase, onLogout }) {
         </button>
       </div>
 
+      {/* Search Bar */}
+      <SearchBar 
+        searchTerm={searchTerm}
+        setSearchTerm={setSearchTerm}
+        filteredCount={filteredCircles.length}
+      />
+
       {/* Error Display */}
       {formError && (
         <div className="mb-6 p-4 bg-red-100 border border-red-400 text-red-700 rounded-lg flex items-center">
@@ -469,435 +438,125 @@ export default function CircleManagement({ user, supabase, onLogout }) {
         </div>
       )}
 
-      {/* Create/Edit Circle Form */}
+      {/* Create Circle Form */}
       {showForm && (
-        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-lg mb-8 border border-gray-200 dark:border-gray-700">
-          <h2 className="text-xl font-semibold mb-6 text-gray-900 dark:text-white">
-            {editingCircle ? "Edit Circle" : "Create New Circle"}
-          </h2>
-
-          <form onSubmit={handleSubmit} className="space-y-6">
-            {/* Basic Info */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Circle Name *
-                </label>
-                <input
-                  type="text"
-                  value={circleName}
-                  onChange={(e) => setCircleName(e.target.value)}
-                  className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
-                  placeholder="Enter circle name"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Description
-                </label>
-                <textarea
-                  value={circleDescription}
-                  onChange={(e) => setCircleDescription(e.target.value)}
-                  className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
-                  placeholder="Describe your circle"
-                  rows="3"
-                />
-              </div>
-            </div>
-
-            {/* Visibility Setting */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Visibility
-              </label>
-              <div className="flex space-x-4">
-                <label className="inline-flex items-center">
-                  <input
-                    type="radio"
-                    name="visibility"
-                    value="public"
-                    checked={visibility === "public"}
-                    onChange={() => handleVisibilityChange("public")}
-                    className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
-                  />
-                  <span className="ml-2 text-gray-700 dark:text-gray-300">
-                    Public
-                  </span>
-                </label>
-                <label className="inline-flex items-center">
-                  <input
-                    type="radio"
-                    name="visibility"
-                    value="private"
-                    checked={visibility === "private"}
-                    onChange={() => handleVisibilityChange("private")}
-                    className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
-                  />
-                  <span className="ml-2 text-gray-700 dark:text-gray-300">
-                    Private
-                  </span>
-                </label>
-              </div>
-              <p className="text-sm text-gray-500 mt-1">
-                Choose circle visibility (Public or Private)
-              </p>
-            </div>
-
-            {/* Filtered Setting */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Circle Settings
-              </label>
-              <div className="flex items-center">
-                <label className="inline-flex items-center">
-                  <input
-                    type="checkbox"
-                    checked={isFiltered}
-                    onChange={(e) => handleFilteredChange(e.target.checked)}
-                    className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                  />
-                  <span className="ml-2 text-gray-700 dark:text-gray-300">
-                    Filtered Circle
-                  </span>
-                </label>
-              </div>
-              <p className="text-sm text-gray-500 mt-1">
-                {isFiltered 
-                  ? "This circle will have join questions and content filtering enabled" 
-                  : "This circle will not have join questions or content filtering"}
-              </p>
-            </div>
-
-            {/* Image Uploads */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* Banner Image */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Banner Image
-                </label>
-                <div className="mt-1 flex items-center space-x-4">
-                  <label className="flex flex-col items-center px-4 py-2 bg-white dark:bg-gray-700 rounded-md border border-gray-300 dark:border-gray-600 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-600">
-                    <Upload className="h-5 w-5 text-gray-400 dark:text-gray-300" />
-                    <span className="mt-2 text-sm text-gray-500 dark:text-gray-400">
-                      Upload
-                    </span>
-                    <input
-                      type="file"
-                      className="hidden"
-                      accept="image/*"
-                      onChange={(e) => handleImageUpload(e, "banner")}
-                    />
-                  </label>
-                  {bannerImage && (
-                    <div className="relative h-20 w-36 overflow-hidden rounded-md border border-gray-300 dark:border-gray-600">
-                      <img
-                        src={bannerImage}
-                        alt="Banner preview"
-                        className="h-full w-full object-cover"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setBannerImage("")}
-                        className="absolute top-1 right-1 bg-red-600 text-white rounded-full p-1 text-xs"
-                      >
-                        &times;
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Icon Image */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Icon Image
-                </label>
-                <div className="mt-1 flex items-center space-x-4">
-                  <label className="flex flex-col items-center px-4 py-2 bg-white dark:bg-gray-700 rounded-md border border-gray-300 dark:border-gray-600 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-600">
-                    <Upload className="h-5 w-5 text-gray-400 dark:text-gray-300" />
-                    <span className="mt-2 text-sm text-gray-500 dark:text-gray-400">
-                      Upload
-                    </span>
-                    <input
-                      type="file"
-                      className="hidden"
-                      accept="image/*"
-                      onChange={(e) => handleImageUpload(e, "icon")}
-                    />
-                  </label>
-                  {iconImage && (
-                    <div className="relative h-16 w-16 overflow-hidden rounded-full border border-gray-300 dark:border-gray-600">
-                      <img
-                        src={iconImage}
-                        alt="Icon preview"
-                        className="h-full w-full object-cover"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setIconImage("")}
-                        className="absolute top-0 right-0 bg-red-600 text-white rounded-full p-1 text-xs"
-                      >
-                        &times;
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* Questions Section - Only visible for filtered circles */}
-            {isFiltered && (
-              <div>
-                <div className="flex justify-between items-center mb-4">
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Join Questions *
-                  </label>
-                  <button
-                    type="button"
-                    onClick={addQuestion}
-                    className="flex items-center space-x-1 bg-green-600 text-white px-3 py-1 rounded text-sm hover:bg-green-700"
-                  >
-                    <Plus className="h-3 w-3" />
-                    <span>Add Question</span>
-                  </button>
-                </div>
-
-                {questions.map((question, qIndex) => (
-                  <div
-                    key={qIndex}
-                    className="border border-gray-200 dark:border-gray-600 p-4 rounded-lg mb-4 bg-gray-50 dark:bg-gray-700"
-                  >
-                    <div className="flex justify-between items-center mb-3">
-                      <h4 className="font-medium text-gray-900 dark:text-white">
-                        Question {qIndex + 1}
-                      </h4>
-                      {questions.length > 1 && (
-                        <button
-                          type="button"
-                          onClick={() => removeQuestion(qIndex)}
-                          className="text-red-600 hover:text-red-800 dark:text-red-400"
-                          aria-label="Remove question"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      )}
-                    </div>
-
-                    <input
-                      type="text"
-                      placeholder="Enter your question"
-                      value={question.question}
-                      onChange={(e) => updateQuestion(qIndex, e.target.value)}
-                      className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-600 dark:text-white"
-                      required
-                    />
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                      {question.answers.map((answer, aIndex) => (
-                        <input
-                          key={aIndex}
-                          type="text"
-                          placeholder={`Answer ${aIndex + 1}`}
-                          value={answer}
-                          onChange={(e) =>
-                            updateAnswer(qIndex, aIndex, e.target.value)
-                          }
-                          className="border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-600 dark:text-white"
-                          required
-                        />
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Submit Button */}
-            <div className="flex space-x-3">
-              <button
-                type="submit"
-                disabled={submitting}
-                className={`px-6 py-2 rounded-lg font-medium ${
-                  submitting
-                    ? "bg-blue-400 cursor-not-allowed"
-                    : "bg-blue-600 hover:bg-blue-700"
-                } text-white transition-colors`}
-              >
-                {submitting
-                  ? editingCircle
-                    ? "Updating..."
-                    : "Creating..."
-                  : editingCircle
-                  ? "Update Circle"
-                  : "Create Circle"}
-              </button>
-
-              <button
-                type="button"
-                onClick={resetForm}
-                className="px-6 py-2 border border-gray-300 dark:border-gray-600 rounded-lg font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-              >
-                Cancel
-              </button>
-            </div>
-          </form>
-        </div>
+        <CreateCircleForm
+          circleName={circleName}
+          setCircleName={setCircleName}
+          circleDescription={circleDescription}
+          setCircleDescription={setCircleDescription}
+          visibility={visibility}
+          handleVisibilityChange={handleVisibilityChange}
+          isFiltered={isFiltered}
+          handleFilteredChange={handleFilteredChange}
+          bannerImage={bannerImage}
+          setBannerImage={setBannerImage}
+          iconImage={iconImage}
+          setIconImage={setIconImage}
+          handleImageUpload={handleImageUpload}
+          questions={questions}
+          updateQuestion={updateQuestion}
+          updateAnswer={updateAnswer}
+          setCorrectAnswer={setCorrectAnswer}
+          addQuestion={addQuestion}
+          removeQuestion={removeQuestion}
+          handleSubmit={handleSubmit}
+          submitting={submitting}
+          resetForm={resetForm}
+        />
       )}
+
+      {/* Edit Circle Modal */}
+      <EditCircleModal
+        showEditModal={showEditModal}
+        setShowEditModal={setShowEditModal}
+        circleName={circleName}
+        setCircleName={setCircleName}
+        circleDescription={circleDescription}
+        setCircleDescription={setCircleDescription}
+        visibility={visibility}
+        handleVisibilityChange={handleVisibilityChange}
+        isFiltered={isFiltered}
+        handleFilteredChange={handleFilteredChange}
+        bannerImage={bannerImage}
+        setBannerImage={setBannerImage}
+        iconImage={iconImage}
+        setIconImage={setIconImage}
+        handleImageUpload={handleImageUpload}
+        questions={questions}
+        updateQuestion={updateQuestion}
+        updateAnswer={updateAnswer}
+        setCorrectAnswer={setCorrectAnswer}
+        addQuestion={addQuestion}
+        removeQuestion={removeQuestion}
+        handleSubmit={handleSubmit}
+        submitting={submitting}
+      />
 
       {/* Existing Circles */}
       <div>
         <h2 className="text-2xl font-semibold mb-6 text-gray-900 dark:text-white">
-          Your Circles ({circles.length})
+          {searchTerm
+            ? `Search Results (${filteredCircles.length})`
+            : `Your Circles (${circles.length})`}
         </h2>
 
-        {circles.length === 0 ? (
+        {filteredCircles.length === 0 ? (
           <div className="text-center py-12 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
             <div className="text-gray-400 mb-4">
-              <svg
-                className="mx-auto h-16 w-16"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={1}
-                  d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 9a2 2 0 012-2m0 0V5a2 2 0 012 2v2M7 7h10"
-                />
-              </svg>
+              {searchTerm ? (
+                <Search className="mx-auto h-16 w-16" />
+              ) : (
+                <svg
+                  className="mx-auto h-16 w-16"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={1}
+                    d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"
+                  />
+                </svg>
+              )}
             </div>
             <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
-              No circles yet
+              {searchTerm
+                ? `No circles found for "${searchTerm}"`
+                : "No circles yet"}
             </h3>
             <p className="text-gray-500 dark:text-gray-400 mb-4">
-              Create your first circle to get started
+              {searchTerm
+                ? "Try searching with different keywords or clear the search to see all circles"
+                : "Create your first circle to get started"}
             </p>
-            <button
-              onClick={() => setShowForm(true)}
-              className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
-            >
-              Create Circle
-            </button>
+            {searchTerm ? (
+              <button
+                onClick={() => setSearchTerm("")}
+                className="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700 transition-colors mr-2"
+              >
+                Clear Search
+              </button>
+            ) : (
+              <button
+                onClick={() => setShowForm(true)}
+                className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                Create Circle
+              </button>
+            )}
           </div>
         ) : (
           <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-            {circles.map((circle) => (
-              <div
+            {filteredCircles.map((circle) => (
+              <CircleCard
                 key={circle.id}
-                className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-md border border-gray-200 dark:border-gray-700 hover:shadow-lg transition-shadow"
-              >
-                {/* Circle Banner Image */}
-                {circle.banner_image && (
-                  <div className="h-32 w-full mb-4 rounded-lg overflow-hidden">
-                    <img
-                      src={circle.banner_image}
-                      alt={circle.name}
-                      className="h-full w-full object-cover"
-                    />
-                  </div>
-                )}
-
-                <div className="flex justify-between items-start mb-4">
-                  {/* Circle Icon + Name */}
-                  <div className="flex-1 flex items-center">
-                    {circle.icon_image ? (
-                      <div className="h-10 w-10 rounded-full overflow-hidden mr-3 flex-shrink-0">
-                        <img
-                          src={circle.icon_image}
-                          alt=""
-                          className="h-full w-full object-cover"
-                        />
-                      </div>
-                    ) : (
-                      <div className="h-10 w-10 rounded-full bg-blue-100 text-blue-600 dark:bg-blue-900 dark:text-blue-200 flex items-center justify-center mr-3 flex-shrink-0">
-                        {circle.name.charAt(0).toUpperCase()}
-                      </div>
-                    )}
-                    <div>
-                      <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">
-                        {circle.name}
-                      </h3>
-                      {circle.description && (
-                        <p className="text-gray-600 dark:text-gray-400 text-sm mb-3">
-                          {circle.description}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="flex space-x-1 ml-4">
-                    <button
-                      onClick={() => startEditing(circle)}
-                      className="p-1 text-blue-600 hover:text-blue-800 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/20 rounded"
-                      title="Edit Circle"
-                      aria-label="Edit Circle"
-                    >
-                      <Edit className="h-4 w-4" />
-                    </button>
-                    <button
-                      onClick={() => deleteCircle(circle.id)}
-                      className="p-1 text-red-600 hover:text-red-800 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/20 rounded"
-                      title="Delete Circle"
-                      aria-label="Delete Circle"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  </div>
-                </div>
-
-                {/* Circle Stats */}
-                <div className="flex items-center space-x-4 text-sm text-gray-500 dark:text-gray-400 mb-4">
-                  <div className="flex items-center">
-                    <Users className="h-4 w-4 mr-1" />
-                    <span>{circle.member_count || 0} members</span>
-                  </div>
-                  <div className="flex items-center">
-                    <Eye className="h-4 w-4 mr-1" />
-                    <span>{circle.visibility || "public"}</span>
-                  </div>
-                  {circle.is_filtered && (
-                    <div className="flex items-center">
-                      <span className="text-orange-600 dark:text-orange-400 text-xs bg-orange-100 dark:bg-orange-900/20 px-2 py-1 rounded-full">
-                        Filtered
-                      </span>
-                    </div>
-                  )}
-                </div>
-
-                {/* Join Questions Preview - Only show for filtered circles */}
-                {circle.is_filtered &&
-                  circle.join_questions &&
-                  circle.join_questions.length > 0 && (
-                    <div className="border-t border-gray-200 dark:border-gray-600 pt-4">
-                      <h4 className="font-medium text-sm text-gray-700 dark:text-gray-300 mb-2">
-                        Join Questions ({circle.join_questions.length})
-                      </h4>
-                      <ul className="space-y-1">
-                        {circle.join_questions.slice(0, 2).map((q, index) => (
-                          <li
-                            key={index}
-                            className="text-xs text-gray-600 dark:text-gray-400 truncate"
-                          >
-                            {index + 1}. {q.question}
-                          </li>
-                        ))}
-                        {circle.join_questions.length > 2 && (
-                          <li className="text-xs text-gray-500 dark:text-gray-500">
-                            +{circle.join_questions.length - 2} more...
-                          </li>
-                        )}
-                      </ul>
-                    </div>
-                  )}
-
-                {/* Creation Date */}
-                <div className="text-xs text-gray-400 dark:text-gray-500 mt-4">
-                  Created {new Date(circle.created_at).toLocaleDateString()}
-                </div>
-              </div>
+                circle={circle}
+                onEdit={startEditing}
+                onDelete={deleteCircle}
+              />
             ))}
           </div>
         )}
